@@ -74,6 +74,7 @@
       box-shadow: 0 0 10px rgba(212, 175, 55, 0.1);
       outline: none;
       -webkit-tap-highlight-color: transparent;
+      user-select: none;
     }
     .control-btn:hover {
       background: rgba(212, 175, 55, 0.2);
@@ -125,6 +126,7 @@
   <div id="ui-layer">
     <div id="top-right-controls">
       <button id="btn-fullscreen" class="control-btn">全屏显示</button>
+      <button id="btn-music" class="control-btn">开启音乐</button>
     </div>
   </div>
 
@@ -133,8 +135,9 @@
     <canvas id="webcam-preview"></canvas>
   </div>
 
-  <audio id="bg-music" loop preload="auto">
-    <source src="./StarryWinter.mp3">
+  <!-- ✅ 修复：明确 type，降低 Safari/移动端识别失败概率 -->
+  <audio id="bg-music" loop preload="auto" crossorigin="anonymous">
+    <source src="./StarryWinter.mp3" type="audio/mpeg">
   </audio>
 
   <script type="module">
@@ -145,19 +148,20 @@
     import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
     import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 
-    // 固定照片：把 photo1..photo27 放到 ./images/
+    // 固定照片：把 photo1..photo37 放到与 index.html 同目录（basePath = './'）
     const FIXED_PHOTOS = {
       enabled: true,
-      basePath: './', // 与 index.html 同目录
+      basePath: './',
       files: [
-      'photo1.jpg',  'photo2.jpg',  'photo3.jpg',  'photo4.jpg',  'photo5.jpg',
-      'photo6.jpg',  'photo7.jpg',  'photo8.jpg',  'photo9.jpg',  'photo10.jpg',
-      'photo11.jpg', 'photo12.jpg', 'photo13.jpg', 'photo14.jpg', 'photo15.jpg',
-      'photo16.jpg', 'photo17.jpg', 'photo18.jpg', 'photo19.jpg', 'photo20.jpg',
-      'photo21.jpg', 'photo22.jpg', 'photo23.jpg', 'photo24.jpg', 'photo25.jpg',
-      'photo26.jpg', 'photo27.jpg', 'photo28.jpg', 'photo29.jpg', 'photo30.jpg',
-      'photo31.jpg', 'photo32.jpg', 'photo33.jpg', 'photo34.jpg', 'photo35.jpg',
-      'photo36.jpg', 'photo37.jpg'],
+        'photo1.jpg','photo2.jpg','photo3.jpg','photo4.jpg','photo5.jpg',
+        'photo6.jpg','photo7.jpg','photo8.jpg','photo9.jpg','photo10.jpg',
+        'photo11.jpg','photo12.jpg','photo13.jpg','photo14.jpg','photo15.jpg',
+        'photo16.jpg','photo17.jpg','photo18.jpg','photo19.jpg','photo20.jpg',
+        'photo21.jpg','photo22.jpg','photo23.jpg','photo24.jpg','photo25.jpg',
+        'photo26.jpg','photo27.jpg','photo28.jpg','photo29.jpg','photo30.jpg',
+        'photo31.jpg','photo32.jpg','photo33.jpg','photo34.jpg','photo35.jpg',
+        'photo36.jpg','photo37.jpg'
+      ],
     };
 
     const CONFIG = {
@@ -183,20 +187,16 @@
         ringRadius: 7.8,
         baseY: -12.4,
         yJitter: 0.35,
-
-        // 自旋（保持你之前要的慢速自旋）
         spinSpeed: 0.40,
-
-        // ✅ “立方体闪光”参数（只靠镜面高光，不发光）
         sparkle: {
           enabled: true,
-          roughnessBase: 0.20,     // 越小越像镜面（更闪）
-          roughnessAmp: 0.06,      // 粗糙度轻微波动，制造“闪一下”
-          envBase: 2.2,            // 环境反射强度
-          envAmp: 0.55,            // 环境反射轻微波动
+          roughnessBase: 0.20,
+          roughnessAmp: 0.06,
+          envBase: 2.2,
+          envAmp: 0.55,
           clearcoatBase: 1.0,
-          clearcoatAmp: 0.0,       // 一般不需要波动
-          rate: 2.2                // 闪烁频率
+          clearcoatAmp: 0.0,
+          rate: 2.2
         }
       }
     };
@@ -227,6 +227,84 @@
     let handLandmarker, video, drawingUtils, canvasCtx;
     let caneTexture;
 
+    // ======================
+    // ✅ 音频控制（修复核心）
+    // ======================
+    const AUDIO = {
+      started: false,
+      userEnabled: false
+    };
+
+    function getMusicEl() {
+      return document.getElementById('bg-music');
+    }
+
+    async function tryStartMusic(reason = '') {
+      const music = getMusicEl();
+      if (!music) return false;
+
+      // 只有用户明确开启后才自动尝试播放（避免策略限制）
+      if (!AUDIO.userEnabled) return false;
+
+      if (!AUDIO.started) {
+        // 更稳：先 load 一次
+        try { music.load(); } catch {}
+      }
+
+      try {
+        music.volume = 0.5;
+        await music.play();
+        AUDIO.started = true;
+        console.log('[audio] started', reason);
+        updateMusicBtnUI();
+        return true;
+      } catch (e) {
+        // 不吞错误：给出原因，且允许后续继续点击重试
+        console.warn('[audio] play failed, tap again to retry:', e);
+        updateMusicBtnUI(true);
+        return false;
+      }
+    }
+
+    function stopMusic() {
+      const music = getMusicEl();
+      if (!music) return;
+      music.pause();
+      // 不把 currentTime 归零，避免再次开启时从头开始（你也可以改为 0）
+      AUDIO.started = false;
+      console.log('[audio] paused');
+      updateMusicBtnUI();
+    }
+
+    function updateMusicBtnUI(failed = false) {
+      const btn = document.getElementById('btn-music');
+      if (!btn) return;
+
+      if (!AUDIO.userEnabled) {
+        btn.textContent = '开启音乐';
+        return;
+      }
+
+      if (failed) {
+        btn.textContent = '点击重试';
+        return;
+      }
+
+      btn.textContent = AUDIO.started ? '关闭音乐' : '开启音乐';
+    }
+
+    async function checkAudioFileExists() {
+      // 用 fetch 检查路径是否 404（本地 file:// 可能会失败，属于正常）
+      try {
+        const r = await fetch('./StarryWinter.mp3', { method: 'HEAD' });
+        if (!r.ok) console.warn('[audio] StarryWinter.mp3 load check failed:', r.status, r.statusText);
+        else console.log('[audio] StarryWinter.mp3 exists (HEAD 200)');
+      } catch (e) {
+        // file:// 或跨域时可能会抛错，不影响播放
+        console.log('[audio] HEAD check skipped/failed (ok on file://):', e);
+      }
+    }
+
     async function init() {
       initThree();
       setupEnvironment();
@@ -234,7 +312,7 @@
       createTextures();
       createGalaxyBackground();
       createParticles();
-      createLuxuryGiftsSpecular(); // ✅ 礼物：镜面高光“闪光”
+      createLuxuryGiftsSpecular();
       if (FIXED_PHOTOS.enabled) await createFixedPhotos();
       setupPostProcessing();
       setupEvents();
@@ -244,6 +322,7 @@
       loader.style.opacity = 0;
       setTimeout(() => loader.remove(), 1200);
 
+      checkAudioFileExists(); // 仅用于提示路径问题
       animate();
     }
 
@@ -266,7 +345,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.12; // 树整体亮一点
+      renderer.toneMappingExposure = 1.12;
       container.appendChild(renderer.domElement);
 
       bgGroup = new THREE.Group();
@@ -309,7 +388,6 @@
       spotBlue.lookAt(0,0,0);
       scene.add(spotBlue);
 
-      // 礼物区域补光（不靠发光，靠高光）
       const giftFill1 = new THREE.PointLight(0xffe6b0, 2.6, 46);
       giftFill1.position.set(12, -13, 12);
       scene.add(giftFill1);
@@ -418,11 +496,9 @@
         }
         this.mesh.scale.lerp(new THREE.Vector3(s, s, s), 5 * dt);
 
-        // ✅ 礼物：慢速自旋 + 镜面高光“闪光”（不发光）
         if (this.type === 'GIFT') {
           const k = CONFIG.gifts.spinSpeed ?? 0.40;
 
-          // 自旋：散开时更明显；树形态时也轻微动一点更像“立方体闪”
           if (mode === 'SCATTER') {
             this.mesh.rotation.x += this.spin.x * dt * k;
             this.mesh.rotation.y += this.spin.y * dt * k;
@@ -433,22 +509,20 @@
 
           if (CONFIG.gifts.sparkle.enabled && this.meta?.sparkleMats?.length) {
             const sp = CONFIG.gifts.sparkle;
-            const t = time * sp.rate + this.offset;
+            const tt = time * sp.rate + this.offset;
 
-            // 使用组合波形制造“不规律”的闪
             const wave =
-              0.55 * Math.sin(t) +
-              0.30 * Math.sin(t * 1.7 + 1.2) +
-              0.15 * Math.sin(t * 2.9 + 2.4);
+              0.55 * Math.sin(tt) +
+              0.30 * Math.sin(tt * 1.7 + 1.2) +
+              0.15 * Math.sin(tt * 2.9 + 2.4);
 
-            const n01 = 0.5 + 0.5 * wave; // 0..1
+            const n01 = 0.5 + 0.5 * wave;
 
             const rough = THREE.MathUtils.clamp(sp.roughnessBase + sp.roughnessAmp * (1.0 - n01), 0.02, 0.85);
             const envI  = THREE.MathUtils.clamp(sp.envBase + sp.envAmp * n01, 0.0, 6.0);
             const cc    = THREE.MathUtils.clamp(sp.clearcoatBase + sp.clearcoatAmp * n01, 0.0, 1.0);
 
             for (const m of this.meta.sparkleMats) {
-              // 关键：roughness 小一点 + env 强一点 => “立方体那种闪”
               if (typeof m.roughness === 'number') m.roughness = rough;
               if (typeof m.envMapIntensity === 'number') m.envMapIntensity = envI;
               if (typeof m.clearcoat === 'number') m.clearcoat = cc;
@@ -592,7 +666,6 @@
         particleSystem.push(new Particle(mesh, 'DUST', true));
       }
 
-      // 树顶星星：按你提供的版本
       createStarTopper();
     }
 
@@ -657,14 +730,12 @@
       STATE.starMesh = star;
     }
 
-    // ✅ 礼物：不发光，只做镜面高光 + 轻微材质闪烁（roughness/envMapIntensity 微调）
     function createLuxuryGiftsSpecular() {
       const giftCount = CONFIG.gifts.count;
 
       const boxGeo = new THREE.BoxGeometry(1.25, 0.95, 1.25);
       const lidGeo = new THREE.BoxGeometry(1.33, 0.28, 1.33);
 
-      // 低饱和“高级色”，但更偏金属/漆面，让高光明显
       const wrapMats = [
         new THREE.MeshPhysicalMaterial({
           color: 0x233a31,
@@ -700,7 +771,6 @@
         })
       ];
 
-      // 丝带：也走“高光闪”，不发光（emissive 不用）
       const ribbonMatsPool = [
         new THREE.MeshPhysicalMaterial({
           color: 0xe2c66f,
@@ -799,7 +869,6 @@
         mainGroup.add(group);
 
         const p = new Particle(group, 'GIFT', false, {
-          // 用于“闪光”的材质集合：盒子 + 盖子 + 丝带 + 蝴蝶结
           sparkleMats: [wrapMat, ribbonMat]
         });
 
@@ -1119,25 +1188,38 @@
         });
       }
 
-      let audioStarted = false;
-      const startMusic = () => {
-        const music = document.getElementById('bg-music');
-        if (music && !audioStarted) {
-          music.volume = 0.5;
-          music.play().then(() => audioStarted = true).catch(()=>{});
-        }
+      // ✅ 新增：音乐按钮（推荐做法，最稳定）
+      const musicBtn = document.getElementById('btn-music');
+      if (musicBtn) {
+        musicBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+
+          AUDIO.userEnabled = !AUDIO.userEnabled;
+          if (AUDIO.userEnabled) {
+            await tryStartMusic('btn-music');
+          } else {
+            stopMusic();
+          }
+          updateMusicBtnUI();
+        });
+        updateMusicBtnUI();
+      }
+
+      // ✅ 兜底：用户第一次与页面交互时，如果已开启音乐，则尝试播放（失败可再点）
+      const userGestureKick = async () => {
+        await tryStartMusic('user-gesture');
       };
-      window.addEventListener('click', startMusic, { once: true });
-      window.addEventListener('touchstart', startMusic, { once: true });
+      window.addEventListener('click', userGestureKick);
+      window.addEventListener('touchstart', userGestureKick, { passive: true });
 
       let touchStartX = 0;
-      document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
+      document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
       document.addEventListener('touchmove', e => {
         if (STATE.hand.detected) return;
         const deltaX = e.touches[0].clientX - touchStartX;
         STATE.rotation.y += deltaX * 0.005;
         touchStartX = e.touches[0].clientX;
-      });
+      }, { passive: true });
     }
 
     init();
