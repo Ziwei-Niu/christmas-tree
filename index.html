@@ -811,11 +811,8 @@
     }
 
     function buildPhotoUrls() {
-      const urls = [];
-      for (let i = 1; i <= FIXED_PHOTOS.count; i++) {
-        urls.push(`${FIXED_PHOTOS.basePath}photo${i}.${FIXED_PHOTOS.ext}`);
-      }
-      return urls;
+      const base = FIXED_PHOTOS.basePath || './';
+      return (FIXED_PHOTOS.files || []).map(name => `${base}${name}`);
     }
 
     async function createFixedPhotos() {
